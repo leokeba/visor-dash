@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import shutil
 import subprocess
 import threading
 import tempfile
@@ -74,8 +75,10 @@ class UpdateVersionTests(unittest.TestCase):
             self.assertIn("--property=KillMode=control-group", command)
             helper = Path(command[command.index("/bin/sh") + 1])
             try:
-                syntax = subprocess.run(["/bin/sh", "-n", str(helper)], capture_output=True, text=True)
-                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+                shell = shutil.which("sh")
+                if shell:
+                    syntax = subprocess.run([shell, "-n", str(helper)], capture_output=True, text=True)
+                    self.assertEqual(syntax.returncode, 0, syntax.stderr)
             finally:
                 helper.unlink(missing_ok=True)
 

@@ -41,7 +41,7 @@ class SystemdUpdateIntegrationTests(unittest.TestCase):
         result = subprocess.run(
             ["systemd-run", "--user", f"--unit={unit}", "--property=Type=exec",
              "--property=KillMode=control-group", "--property=Restart=always",
-             "--property=RestartSec=1s", "--collect", "--quiet", *command],
+             "--property=RestartSec=1s", "--quiet", *command],
             capture_output=True, text=True, timeout=15, check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)

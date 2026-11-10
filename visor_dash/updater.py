@@ -238,6 +238,135 @@ def _restart_command(target: Path) -> list:
     return [sys.executable, str(target), *sys.argv[1:]]
 
 
+def _dashboard_systemd_service() -> bool:
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        groups = Path("/proc/self/cgroup").read_text(encoding="utf-8")
+    except OSError as e:
+        if os.environ.get("INVOCATION_ID"):
+            raise UpdateError(f"Could not identify the systemd service for this process: {e}") from e
+        return False
+    if _in_dashboard_user_service(groups):
+        return True
+    if any("visor-dash.service" in group.rsplit(":", 1)[-1].strip("/").split("/")
+           for group in groups.splitlines()):
+        raise UpdateError("Self-update is supported only from the visor-dash user service.")
+    if os.environ.get("INVOCATION_ID"):
+        raise UpdateError("Self-update is supported only from the visor-dash user service.")
+    return False
+
+
+def _in_dashboard_user_service(groups: str) -> bool:
+    for group in groups.splitlines():
+        path = group.rsplit(":", 1)[-1]
+        parts = path.strip("/").split("/")
+        if "visor-dash.service" in parts:
+            return any(part.startswith("user@") and part.endswith(".service") for part in parts)
+    return False
+
+
+def _schedule_systemd_restart(stage: Path, target: Path, service_unit: str,
+                              pid: Optional[int] = None, log: Optional[Path] = None) -> str:
+    pid = pid or os.getpid()
+    log = log or settings.logs_dir(settings.home()) / "update.log"
+    try:
+        log.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise UpdateError(f"Could not prepare the update log: {e}") from e
+    backup = target.with_name(f".{target.name}.update-backup-{pid}")
+    helper_fd, helper_name = tempfile.mkstemp(prefix=".visor-dash-update-helper-", suffix=".sh",
+                                               dir=target.parent)
+    helper = Path(helper_name)
+    script = """#!/bin/sh
+trap 'rm -f "$0"' EXIT
+umask 077
+pid=$1
+stage=$2
+target=$3
+backup=$4
+log=$5
+unit=$6
+exec >>"$log" 2>&1
+start_service() {
+    if ! systemctl --user start "$unit"; then return 1; fi
+    attempt=0
+    while [ "$attempt" -lt 100 ]; do
+        state=$(systemctl --user show --property=ActiveState --value "$unit")
+        substate=$(systemctl --user show --property=SubState --value "$unit")
+        if [ "$state" = active ]; then return 0; fi
+        case "$state:$substate" in
+            failed:*|inactive:*|activating:auto-restart) return 1 ;;
+        esac
+        sleep 0.2
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+printf '%s\\n' 'Waiting for the dashboard process to exit.'
+while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
+if ! systemctl --user stop "$unit"; then
+    printf '%s\\n' 'Update failed: could not stop the dashboard service.'
+    exit 1
+fi
+if ! cp -p "$target" "$backup"; then
+    printf '%s\\n' 'Update failed: could not preserve the current executable.'
+    exit 1
+fi
+if ! mv -f "$stage" "$target"; then
+    rm -f "$backup"
+    printf '%s\\n' 'Update failed: could not atomically replace the executable.'
+    exit 1
+fi
+if start_service; then
+    rm -f "$backup"
+    printf '%s\\n' 'Update installed and dashboard restarted.'
+    exit 0
+fi
+printf '%s\\n' 'Update failed to restart; restoring the previous executable.'
+systemctl --user stop "$unit" || true
+if ! mv -f "$backup" "$target"; then
+    printf '%s\\n' 'Update rollback failed; the previous executable remains in the backup file.'
+    exit 1
+fi
+if ! start_service; then
+    printf '%s\\n' 'Update rollback restored the previous executable, but the service did not start.'
+    exit 1
+fi
+printf '%s\\n' 'Previous executable restored and dashboard restarted.'
+exit 1
+"""
+    try:
+        with os.fdopen(helper_fd, "w", encoding="utf-8") as file:
+            file.write(script)
+            file.flush()
+            os.fsync(file.fileno())
+        os.chmod(helper, 0o700)
+    except OSError as e:
+        helper.unlink(missing_ok=True)
+        raise UpdateError(f"Could not prepare the systemd update helper: {e}") from e
+
+    token = helper.stem.rsplit("-", 1)[-1]
+    unit = f"visor-dash-update-{pid}-{token}.service"
+    command = [
+        "systemd-run", "--user", f"--unit={unit}", "--property=Type=exec",
+        "--property=KillMode=control-group", "--collect", "/bin/sh", str(helper),
+        str(pid), str(stage), str(target), str(backup), str(log), service_unit,
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=15, check=False)
+    except OSError as e:
+        helper.unlink(missing_ok=True)
+        raise UpdateError(f"Could not start the systemd update service: {e}") from e
+    except subprocess.TimeoutExpired as e:
+        raise UpdateError("Timed out while starting the systemd update service; check the update log.") from e
+    if result.returncode:
+        helper.unlink(missing_ok=True)
+        detail = (result.stderr or result.stdout).strip()
+        raise UpdateError(f"Could not start the systemd update service: {detail or result.returncode}")
+    return unit
+
+
 def _schedule_restart(stage: Path, target: Path) -> None:
     command = _restart_command(target)
     log = settings.logs_dir(settings.home()) / "update.log"
@@ -245,6 +374,9 @@ def _schedule_restart(stage: Path, target: Path) -> None:
         log.parent.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         raise UpdateError(f"Could not prepare the update log: {e}") from e
+    if _dashboard_systemd_service():
+        _schedule_systemd_restart(stage, target, "visor-dash.service", log=log)
+        return
     if os.name == "nt":
         data = {
             "pid": os.getpid(),

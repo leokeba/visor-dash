@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import subprocess
 import threading
 import tempfile
 import unittest
@@ -51,6 +52,32 @@ class UpdateVersionTests(unittest.TestCase):
                 patch.object(updater, "__version__", "0.1.9"), \
                 patch.object(updater, "_runtime", return_value=(None, None)):
             self.assertFalse(updater.update_status()["installable"])
+
+    def test_detects_generated_systemd_user_service_cgroup(self):
+        cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/visor-dash.service\n"
+        self.assertTrue(updater._in_dashboard_user_service(cgroup))
+        self.assertFalse(updater._in_dashboard_user_service("0::/system.slice/visor-dash.service\n"))
+        self.assertFalse(updater._in_dashboard_user_service("0::/user.slice/other.service\n"))
+
+    def test_systemd_update_uses_transient_service_with_valid_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "visor-dash"
+            target.write_bytes(b"old")
+            stage = Path(directory) / ".visor-dash-update"
+            stage.write_bytes(b"new")
+            completed = subprocess.CompletedProcess([], 0, "", "")
+            with patch.object(updater.subprocess, "run", return_value=completed) as run:
+                updater._schedule_systemd_restart(stage, target, "visor-dash.service", pid=123)
+            command = run.call_args.args[0]
+            self.assertIn("--user", command)
+            self.assertIn("--property=Type=exec", command)
+            self.assertIn("--property=KillMode=control-group", command)
+            helper = Path(command[command.index("/bin/sh") + 1])
+            try:
+                syntax = subprocess.run(["/bin/sh", "-n", str(helper)], capture_output=True, text=True)
+                self.assertEqual(syntax.returncode, 0, syntax.stderr)
+            finally:
+                helper.unlink(missing_ok=True)
 
 
 class UpdateArchiveTests(unittest.TestCase):

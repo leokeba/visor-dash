@@ -1,0 +1,113 @@
+name: Release
+
+# Every push to main: test on all platforms, build the apps, smoke-test them, publish a release.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  VERSION: 0.1.${{ github.run_number }}
+  PYINSTALLER: "6.11.1"
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.12"]
+        include:
+          - os: ubuntu-latest
+            python: "3.9"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests
+        run: python -m unittest discover -s tests -t . -v
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04        # older glibc: the binary runs on more distributions
+            target: linux-x64
+            pyz: "--pyz"
+          - os: windows-latest
+            target: windows-x64
+            pyz: ""
+          - os: macos-latest      # Apple silicon
+            target: macos-arm64
+            pyz: ""
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyInstaller
+        run: python -m pip install "pyinstaller==${PYINSTALLER}"
+      - name: Build
+        run: python packaging/build.py --version "$VERSION" --target "${{ matrix.target }}" ${{ matrix.pyz }}
+      - name: Smoke test
+        run: python packaging/smoke_test.py "$VERSION" $(cat dist/built.txt | tr '\r\n' '  ')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Checksums
+        working-directory: release
+        run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          Download the file for your system, then run `visor-dash setup` and `visor-dash`. See the [install guide](https://github.com/${{ github.repository }}#install).
+
+          | System | File |
+          |---|---|
+          | macOS (Apple silicon) | `visor-dash-${{ env.VERSION }}-macos-arm64.zip` |
+          | Windows 64-bit | `visor-dash-${{ env.VERSION }}-windows-x64.zip` |
+          | Linux x86-64 | `visor-dash-${{ env.VERSION }}-linux-x64.tar.gz` |
+          | Any system with Python 3.9+ (incl. Intel Macs) | `visor-dash-${{ env.VERSION }}.pyz` |
+
+          The apps are not code-signed: see the README for the one-time macOS / Windows confirmation.
+          Unofficial software, not affiliated with Vauban Systems.
+          EOF
+          gh release create "v${VERSION}" release/* \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "visor-dash ${VERSION}" \
+            --notes-file notes.md \
+            --generate-notes

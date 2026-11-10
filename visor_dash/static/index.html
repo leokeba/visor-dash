@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Badge dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="site">
+      <h1 id="site-name">Badge controller</h1>
+      <p class="conn" id="conn" role="status" aria-live="polite">Connecting to the controller…</p>
+    </div>
+    <button type="button" class="btn" id="refresh">Refresh now</button>
+  </header>
+
+  <main>
+    <p class="error" id="error" role="alert" hidden></p>
+    <p class="warning" id="backup-notice" role="status" hidden></p>
+    <p class="notice" id="version-notice" hidden></p>
+    <section class="day" aria-labelledby="day-title">
+      <div class="day-head">
+        <h2 id="day-title">Today at the doors</h2>
+        <p class="day-date" id="day-date"></p>
+      </div>
+      <div class="ribbon" id="ribbon" aria-describedby="ribbon-help">
+        <div class="lane" data-cat="granted"><span class="lane-name">Door opened</span><span class="lane-count" id="count-granted">–</span><div class="track"></div></div>
+        <div class="lane" data-cat="refused"><span class="lane-name">Refused</span><span class="lane-count" id="count-refused">–</span><div class="track"></div></div>
+        <div class="lane" data-cat="alarm"><span class="lane-name">Alarms</span><span class="lane-count" id="count-alarm">–</span><div class="track"></div></div>
+        <div class="hours" aria-hidden="true" id="hours"></div>
+      </div>
+      <p class="help" id="ribbon-help">Each mark is one event since midnight. Hover or tap a mark to see it.</p>
+    </section>
+
+    <div class="split">
+      <section aria-labelledby="doors-title">
+        <h2 id="doors-title">Doors</h2>
+        <ul class="doors" id="doors"></ul>
+      </section>
+      <section aria-labelledby="alerts-title">
+        <h2 id="alerts-title">Alerts today</h2>
+        <ul class="alerts" id="alerts"><li class="empty">Loading…</li></ul>
+      </section>
+    </div>
+
+    <section class="tables">
+      <div class="tabs" role="tablist" aria-label="Lists">
+        <button type="button" role="tab" id="tab-activity" aria-controls="panel-activity" aria-selected="true">Activity</button>
+        <button type="button" role="tab" id="tab-people" aria-controls="panel-people" aria-selected="false" tabindex="-1">People <span class="tab-count" id="people-count"></span></button>
+        <button type="button" role="tab" id="tab-access" aria-controls="panel-access" aria-selected="false" tabindex="-1">Access hours</button>
+      </div>
+
+      <div role="tabpanel" id="panel-activity" aria-labelledby="tab-activity">
+        <div class="filters">
+          <div class="seg" role="group" aria-label="Show events">
+            <button type="button" data-filter="access" aria-pressed="true">Badge use</button>
+            <button type="button" data-filter="refused" aria-pressed="false">Refused only</button>
+            <button type="button" data-filter="alarm" aria-pressed="false">Alarms</button>
+            <button type="button" data-filter="all" aria-pressed="false">Everything</button>
+          </div>
+          <div class="filter-end">
+            <label class="period"><span class="sr">Period</span>
+              <select id="activity-period">
+                <option value="today">Today</option>
+                <option value="7" selected>Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="all">All history</option>
+              </select>
+            </label>
+            <label class="search"><span class="sr">Search activity</span>
+              <input type="search" id="activity-search" placeholder="Search a name, badge, door or event" autocomplete="off">
+            </label>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Time</th><th scope="col">Event</th><th scope="col">Door</th><th scope="col">Badge</th><th scope="col">Person</th></tr></thead>
+            <tbody id="activity-rows"></tbody>
+          </table>
+        </div>
+        <div class="more">
+          <button type="button" class="btn" id="load-older">Load older events</button>
+          <a class="btn" id="export-csv" href="/api/history.csv" download>Export CSV</a>
+          <span class="help" id="activity-meta"></span>
+        </div>
+      </div>
+
+      <div role="tabpanel" id="panel-people" aria-labelledby="tab-people" hidden>
+        <div class="filters">
+          <div class="seg" role="group" aria-label="Show people">
+            <button type="button" data-status="all" aria-pressed="true">Everyone</button>
+            <button type="button" data-status="authorised" aria-pressed="false">Authorised</button>
+            <button type="button" data-status="forbidden" aria-pressed="false">Blocked</button>
+          </div>
+          <div class="filter-end">
+            <label class="period"><span class="sr">Sort people</span>
+              <select id="people-sort">
+                <option value="name">By name</option>
+                <option value="seen-old">Longest unseen first</option>
+                <option value="seen-new">Most recently seen first</option>
+              </select>
+            </label>
+            <label class="search"><span class="sr">Search people</span>
+              <input type="search" id="people-search" placeholder="Search a name, badge or group" autocomplete="off">
+            </label>
+            <button type="button" class="btn primary" id="add-person" hidden>Add a person</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Name</th><th scope="col">Badge</th><th scope="col">Groups</th><th scope="col">Access</th><th scope="col">Last seen</th></tr></thead>
+            <tbody id="people-rows"></tbody>
+          </table>
+        </div>
+        <p class="flash" id="people-flash" role="status" aria-live="polite" hidden></p>
+        <p class="help" id="people-meta"></p>
+      </div>
+
+      <div role="tabpanel" id="panel-access" aria-labelledby="tab-access" hidden>
+        <p class="help access-intro">Each person belongs to up to three groups. A group says, for each door, whether its members can get in never, at any time, or during a time slot.</p>
+        <section class="access-section" aria-labelledby="groups-title">
+          <div class="section-head">
+            <h3 id="groups-title">Groups</h3>
+            <button type="button" class="btn primary" id="add-group" hidden>Add a group</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr id="group-head"><th scope="col">Group</th><th scope="col">People</th></tr></thead>
+              <tbody id="group-rows"><tr><td class="none" colspan="4">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="access-section" aria-labelledby="slots-title">
+          <div class="section-head">
+            <h3 id="slots-title">Time slots</h3>
+            <button type="button" class="btn primary" id="add-slot" hidden>Add a time slot</button>
+          </div>
+          <ul class="slot-list" id="slot-list"></ul>
+          <p class="help" id="holiday-note"></p>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p id="foot-mode">This page only reads from the controller. It can't change badges or open doors.</p>
+    <p id="foot-backup"></p>
+  </footer>
+  <div class="tip" id="tip" role="tooltip" hidden></div>
+
+  <dialog id="group" aria-labelledby="group-title">
+    <form id="group-form" method="dialog" novalidate>
+      <header class="dlg-head">
+        <h2 id="group-title">Group</h2>
+        <p class="help" id="group-sub"></p>
+      </header>
+      <p class="error" id="group-error" role="alert" hidden></p>
+      <div class="fields">
+        <label class="field wide"><span>Name</span><input id="g-name" maxlength="20" autocomplete="off"></label>
+        <label class="check wide"><input type="checkbox" id="g-enabled"> Active: people in this group can use their badge</label>
+        <fieldset class="field wide">
+          <legend>Access per door</legend>
+          <div class="door-access" id="g-doors"></div>
+        </fieldset>
+        <p class="hint wide" id="g-other" hidden>This group has other settings (lifts, timers or pass limits) set on the controller. They stay as they are.</p>
+      </div>
+      <footer class="dlg-foot">
+        <button type="button" class="linkish" id="g-members"></button>
+        <span class="grow"></span>
+        <button type="button" class="btn" id="g-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="g-save">Save changes</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="slot" aria-labelledby="slot-title">
+    <form id="slot-form" method="dialog" novalidate>
+      <header class="dlg-head">
+        <h2 id="slot-title">Time slot</h2>
+        <p class="help" id="slot-sub"></p>
+      </header>
+      <p class="error" id="slot-error" role="alert" hidden></p>
+      <div class="fields">
+        <label class="field wide"><span>Name</span><input id="s-name" maxlength="20" autocomplete="off"></label>
+        <div class="wide week-edit">
+          <p class="hint">Times as 08:00-12:00, separated by commas. Up to 10 per day. Leave empty for no access that day.</p>
+          <div id="s-days"></div>
+          <div class="copy-row">
+            <button type="button" class="linkish" id="s-copy-week">Copy Monday to Tuesday–Friday</button>
+            <button type="button" class="linkish" id="s-copy-all">Copy Monday to every day</button>
+          </div>
+        </div>
+      </div>
+      <footer class="dlg-foot">
+        <span class="help" id="s-used"></span>
+        <span class="grow"></span>
+        <button type="button" class="btn" id="s-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="s-save">Save changes</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="door" aria-labelledby="door-title">
+    <div class="door-dlg">
+      <header class="dlg-head">
+        <h2 id="door-title">Door</h2>
+        <p class="help" id="door-sub"></p>
+      </header>
+      <p class="error" id="door-error" role="alert" hidden></p>
+      <div class="door-body">
+        <table class="door-stats">
+          <thead><tr><th scope="col"></th><th scope="col">Today</th><th scope="col">Last 7 days</th></tr></thead>
+          <tbody id="door-stats"></tbody>
+        </table>
+        <p id="door-last"></p>
+        <p class="flash" id="door-result" role="status" aria-live="polite" hidden></p>
+        <section class="recent" aria-labelledby="door-recent-title">
+          <div class="recent-head">
+            <h3 id="door-recent-title">Recent activity</h3>
+            <button type="button" class="linkish" id="door-all">Show all in Activity</button>
+          </div>
+          <ul class="mini-events" id="door-events"></ul>
+        </section>
+      </div>
+      <footer class="dlg-foot" id="door-actions">
+        <span class="help" id="door-open-off" hidden>Opening doors from here is turned off (DASH_ALLOW_DOOR_OPEN).</span>
+        <span class="grow"></span>
+        <button type="button" class="btn" id="door-close">Close</button>
+        <button type="button" class="btn primary" id="door-open">Open door</button>
+      </footer>
+      <footer class="dlg-foot confirm" id="door-confirm" hidden>
+        <p id="door-confirm-text"></p>
+        <span class="grow"></span>
+        <button type="button" class="btn" id="door-keep">Cancel</button>
+        <button type="button" class="btn danger" id="door-confirm-open">Open door</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <dialog id="person" aria-labelledby="person-title">
+    <form id="person-form" method="dialog" novalidate>
+      <header class="dlg-head">
+        <h2 id="person-title">Person</h2>
+        <p class="help" id="person-sub"></p>
+        <p class="help" id="person-history" hidden></p>
+      </header>
+      <section class="recent" id="person-recent" aria-labelledby="person-recent-title" hidden>
+        <div class="recent-head">
+          <h3 id="person-recent-title">Recent activity</h3>
+          <button type="button" class="linkish" id="person-all">Show all in Activity</button>
+        </div>
+        <ul class="mini-events" id="person-events"></ul>
+      </section>
+
+      <p class="error" id="person-error" role="alert" hidden></p>
+      <p class="notice" id="person-readonly" hidden>Editing is turned off. To allow changes, set DASH_ALLOW_WRITES=1 in .env and restart the dashboard.</p>
+
+      <div class="fields">
+        <label class="field"><span>Last name</span>
+          <input id="f-last" maxlength="16" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span>First name</span>
+          <input id="f-first" maxlength="16" autocomplete="off" spellcheck="false"></label>
+        <p class="hint wide" id="name-hint">Up to 16 characters each; accented letters count double.</p>
+
+        <div class="field">
+          <label for="f-ident">Badge number</label>
+          <div class="with-button">
+            <input id="f-ident" inputmode="numeric" pattern="[0-9]*" maxlength="17" autocomplete="off">
+            <button type="button" class="btn" id="read-badge">Read from a reader</button>
+          </div>
+        </div>
+        <label class="field"><span>Badge type</span>
+          <select id="f-type"></select></label>
+        <p class="hint wide swipe" id="swipe-status" role="status" aria-live="polite" hidden></p>
+        <p class="hint wide" id="badge-hint" hidden>The badge number and type can't be changed. To give this person another badge, delete them and add them again.</p>
+
+        <fieldset class="field wide">
+          <legend>Access</legend>
+          <div class="seg" role="radiogroup">
+            <label><input type="radio" name="f-access" value="1"> Authorised</label>
+            <label><input type="radio" name="f-access" value="0"> Blocked</label>
+          </div>
+        </fieldset>
+
+        <label class="field"><span>Group 1</span><select id="f-g1"></select></label>
+        <label class="field"><span>Group 2</span><select id="f-g2"></select></label>
+        <label class="field"><span>Group 3</span><select id="f-g3"></select></label>
+        <label class="field"><span>When</span><select id="f-slot"></select></label>
+
+        <fieldset class="field wide">
+          <legend>Validity</legend>
+          <label class="check"><input type="checkbox" id="f-valid"> Only valid between two dates</label>
+          <div class="dates" id="f-dates">
+            <label class="field"><span>From</span><input type="datetime-local" id="f-from"></label>
+            <label class="field"><span>Until</span><input type="datetime-local" id="f-until"></label>
+          </div>
+        </fieldset>
+        <p class="hint wide" id="other-hint" hidden>This person has other settings (alarm, pass count or similar) set on the controller. They stay as they are.</p>
+      </div>
+
+      <footer class="dlg-foot" id="person-actions">
+        <button type="button" class="btn danger-quiet" id="person-delete">Delete person</button>
+        <span class="grow"></span>
+        <button type="button" class="btn" id="person-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="person-save">Save changes</button>
+      </footer>
+      <footer class="dlg-foot confirm" id="person-confirm" hidden>
+        <p id="confirm-text"></p>
+        <span class="grow"></span>
+        <button type="button" class="btn" id="confirm-keep">Keep</button>
+        <button type="button" class="btn danger" id="confirm-delete">Delete person</button>
+      </footer>
+    </form>
+  </dialog>
+</body>
+</html>

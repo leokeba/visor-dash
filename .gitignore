@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+backups/
+data/
+# Site-specific diagnosis of one installation: never publish
+FINDINGS.md
+# Build outputs
+visor_dash/_version.py
+build/
+dist/
+*.spec
+logs/
+.DS_Store

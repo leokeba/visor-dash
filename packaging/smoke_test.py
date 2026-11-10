@@ -1,0 +1,65 @@
+"""Start a built app against a fake controller and check that the dashboard is served.
+
+  python packaging/smoke_test.py EXPECTED_VERSION PATH [PATH ...]   (a binary, or a .pyz)
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+from pathlib import Path
+
+PORT = 18765
+
+
+def command(path: str):
+    return [sys.executable, path] if path.endswith(".pyz") else [path]
+
+
+def check(path: str, version: str) -> None:
+    cmd = command(path)
+    out = subprocess.run(cmd + ["--version"], capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0 and version in out.stdout, f"--version said: {out.stdout!r} {out.stderr!r}"
+    with tempfile.TemporaryDirectory() as home:
+        # Controller on a closed local port: every request fails fast; the page must still load.
+        Path(home, ".env").write_text("VAUBAN_HOST=127.0.0.1\nVAUBAN_PORT=9\nVAUBAN_USER=a\nVAUBAN_PASSWORD=b\n",
+                                      encoding="utf-8")
+        where = subprocess.run(cmd + ["--home", home, "where"], capture_output=True, text=True, timeout=120)
+        assert where.returncode == 0 and home in where.stdout, where.stdout + where.stderr
+        proc = subprocess.Popen(cmd + ["--home", home, "serve", "--port", str(PORT)],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            deadline = time.time() + 60
+            while True:
+                try:
+                    for page, marker in (("/", b"<title>"), ("/app.js", b"function"), ("/style.css", b":root")):
+                        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}{page}", timeout=5) as r:
+                            body = r.read()
+                            assert r.status == 200 and marker in body, f"{page}: unexpected content"
+                    break
+                except OSError:
+                    if time.time() > deadline or proc.poll() is not None:
+                        proc.kill()
+                        raise SystemExit(f"{path}: dashboard did not start.\n{proc.stdout.read()}")
+                    time.sleep(1)
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+    print(f"ok  {path}  ({version})")
+
+
+def main() -> int:
+    version, paths = sys.argv[1], sys.argv[2:]
+    for p in paths:
+        check(p, version)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

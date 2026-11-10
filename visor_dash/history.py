@@ -221,9 +221,14 @@ class EventArchive:
 
     _COLS = "epoch, no, at, raw_date, code, reader, identifier, user_index, person, verified"
 
-    def since(self, start_iso: str) -> List[Row]:
-        return self._rows(f"SELECT {self._COLS} FROM events WHERE at >= ? ORDER BY epoch DESC, no DESC",
-                          (start_iso,))
+    def since(self, start_iso: str, end_iso: Optional[str] = None) -> List[Row]:
+        if end_iso is None:
+            sql = f"SELECT {self._COLS} FROM events WHERE at >= ? ORDER BY epoch DESC, no DESC"
+            args = (start_iso,)
+        else:
+            sql = f"SELECT {self._COLS} FROM events WHERE at >= ? AND at < ? ORDER BY epoch DESC, no DESC"
+            args = (start_iso, end_iso)
+        return self._rows(sql, args)
 
     def after_key(self, key: int) -> List[Row]:
         e, n = split_key(key)

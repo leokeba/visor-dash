@@ -338,11 +338,19 @@ class Dashboard:
         return {"events": [self.enrich_row(r) for r in rows], "has_more": len(rows) == limit,
                 "archive": self.archive.summary(), "import": dict(self.import_state)}
 
-    def today(self) -> dict:
-        """All archived events since midnight, for the day ribbon and door cards."""
-        midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        rows = self.archive.since(midnight.isoformat())
-        return {"events": [self.enrich_row(r) for r in rows], "midnight": midnight.isoformat()}
+    def today(self, day: Optional[str] = None) -> dict:
+        """Archived events for one calendar day, for the ribbon and door cards."""
+        try:
+            selected = datetime.strptime(day, "%Y-%m-%d").date() if day else datetime.now().date()
+            if day and selected.isoformat() != day:
+                raise ValueError
+        except ValueError:
+            raise ValidationError("Dates must look like 2026-11-10.") from None
+        midnight = datetime.combine(selected, datetime.min.time())
+        end = midnight + timedelta(days=1)
+        rows = self.archive.since(midnight.isoformat(), end.isoformat())
+        return {"events": [self.enrich_row(r) for r in rows],
+                "date": selected.isoformat(), "midnight": midnight.isoformat()}
 
     # ---- overview -------------------------------------------------------
     def overview(self) -> dict:
@@ -708,7 +716,7 @@ def make_handler(dash: Dashboard, dash_password: Optional[str], allowed_hosts: O
                         return
                 elif url.path == "/api/today":
                     dash.poll_events(force=q.get("refresh") == "1")
-                    data = dash.today()
+                    data = dash.today(q.get("date"))
                 elif url.path == "/api/people":
                     data = dash.people()
                 elif url.path == "/api/options":

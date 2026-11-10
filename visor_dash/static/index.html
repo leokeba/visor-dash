@@ -31,8 +31,15 @@
     <p class="notice" id="version-notice" hidden></p>
     <section class="day" aria-labelledby="day-title">
       <div class="day-head">
-        <h2 id="day-title">Today at the doors</h2>
-        <p class="day-date" id="day-date"></p>
+        <div class="day-heading">
+          <h2 id="day-title">Today at the doors</h2>
+          <p class="day-date" id="day-date"></p>
+        </div>
+        <div class="day-nav" role="group" aria-label="Choose day">
+          <button type="button" class="btn day-step" id="previous-day" aria-label="Previous day">‹</button>
+          <button type="button" class="btn" id="return-today" hidden>Today</button>
+          <button type="button" class="btn day-step" id="next-day" aria-label="Next day">›</button>
+        </div>
       </div>
       <div class="ribbon" id="ribbon" aria-describedby="ribbon-help">
         <div class="lane" data-cat="granted"><span class="lane-name">Door opened</span><span class="lane-count" id="count-granted">–</span><div class="track"></div></div>
@@ -40,7 +47,7 @@
         <div class="lane" data-cat="alarm"><span class="lane-name">Alarms</span><span class="lane-count" id="count-alarm">–</span><div class="track"></div></div>
         <div class="hours" aria-hidden="true" id="hours"></div>
       </div>
-      <p class="help" id="ribbon-help">Each mark is one event since midnight. Hover or tap a mark to see it.</p>
+      <p class="help" id="ribbon-help">Each mark is one event that day. Hover or tap a mark to see it.</p>
     </section>
 
     <div class="split">

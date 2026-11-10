@@ -7,7 +7,7 @@ from pathlib import Path
 
 from visor_dash.client import RawEvent, parse_users
 from visor_dash.history import EventArchive, key_of, resolve_person
-from visor_dash.server import Dashboard, _cell
+from visor_dash.server import Dashboard, ValidationError, _cell
 from tests.test_dashboard import FakeClient, user_record
 
 
@@ -104,6 +104,23 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(q(text="%"), [])                        # LIKE wildcards are literal
         self.assertEqual(q(start=(NOW - timedelta(days=2)).isoformat()), [4, 3, 2])
         self.assertEqual(q(before=key_of(1, 3)), [2, 1])
+
+    def test_day_overview_filters_selected_date(self):
+        midnight = datetime.combine(NOW.date() - timedelta(days=1), datetime.min.time())
+        self.a.ingest([
+            (4, ev(stamp(midnight + timedelta(days=1)))),
+            (3, ev(stamp(midnight + timedelta(days=1) - timedelta(seconds=1)))),
+            (2, ev(stamp(midnight))),
+            (1, ev(stamp(midnight - timedelta(seconds=1)))),
+        ], USERS)
+        dash = Dashboard(FakeClient(), "en", archive=self.a)
+
+        result = dash.today(midnight.date().isoformat())
+
+        self.assertEqual(result["date"], midnight.date().isoformat())
+        self.assertEqual([event["no"] for event in result["events"]], [key_of(1, 3), key_of(1, 2)])
+        with self.assertRaises(ValidationError):
+            dash.today("2026-2-2")
 
     def test_last_seen_and_stats(self):
         self.a.ingest([(2, ev(stamp(NOW - timedelta(hours=1)), ident="555", user=1, reader=2)),

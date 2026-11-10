@@ -72,7 +72,11 @@ button, input { font: inherit; color: inherit; }
 
 /* ---- the day ribbon: the one loud element ------------------------------ */
 .day { background: var(--surface); border-radius: 10px; padding: 22px 24px 18px; }
-.day-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.day-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.day-heading { min-width: 0; }
+.day-nav { display: flex; align-items: center; gap: 6px; }
+.day-step { min-width: 38px; padding-inline: 8px; font-size: 1.25rem; line-height: 1.2; }
+.day-nav .btn:disabled { cursor: not-allowed; }
 .day-date { font-family: var(--display); color: var(--muted); font-size: 1rem; }
 .ribbon { display: grid; grid-template-columns: 9.5rem 3.5rem 1fr; row-gap: 6px; align-items: center; margin-top: 6px; }
 .lane { display: contents; }
@@ -283,6 +287,8 @@ td.access-none { color: var(--muted); }
   .top-buttons { flex-wrap: wrap; }
   .update-status { text-align: left; }
   .day { padding: 18px 16px 14px; }
+  .day-head { align-items: flex-start; }
+  .day-nav { flex-shrink: 0; }
   .ribbon { grid-template-columns: 1fr auto; }
   .lane-name { grid-column: 1; }
   .lane-count { grid-column: 2; padding-right: 0; font-size: 1.15rem; }

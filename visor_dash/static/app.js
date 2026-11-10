@@ -15,6 +15,8 @@ const state = {
   activityFilter: "access",
   activity: { rows: new Map(), hasMore: false, req: 0, archive: null, importInfo: null },
   historySince: null,
+  oldestDay: null,
+  selectedDay: null,
   options: null,
   peopleFilter: "all",
   oldestNo: null,
@@ -102,15 +104,13 @@ function sortedEvents() {
   return [...state.events.values()].sort((a, b) => b.no - a.no);
 }
 
-function todaysEvents() {
-  return sortedEvents().filter((e) => isToday(parseIso(e.iso)));
-}
-
 // ---------------------------------------------------------------- overview
 function renderOverview(o) {
   document.title = `${o.site_name} – badge dashboard`;
   $("site-name").textContent = o.site_name;
   state.doors = o.doors;
+  state.oldestDay = o.history.oldest ? o.history.oldest.slice(0, 10) : null;
+  renderDayNavigation();
   renderBackup(o.backup);
   const v = o.versions || {};
   const notice = $("version-notice");
@@ -211,10 +211,51 @@ function renderHours() {
   }
 }
 
-function renderRibbon(events) {
-  const today = new Date();
-  $("day-date").textContent = today.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
-  const nowPct = (minutesOfDay(today) / 1440) * 100;
+function dayDate(day) {
+  const [year, month, date] = day.split("-").map(Number);
+  return new Date(year, month - 1, date);
+}
+
+function dayLabel(day) {
+  return dayDate(day).toLocaleDateString(undefined,
+    { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+function shownDay() {
+  return state.selectedDay || ymd(new Date());
+}
+
+function renderDayNavigation() {
+  const day = shownDay();
+  const today = day === ymd(new Date());
+  const busy = refreshing;
+  $("day-title").textContent = today ? "Today at the doors" : "Doors on this day";
+  $("alerts-title").textContent = today ? "Alerts today" : "Alerts on this day";
+  $("day-date").textContent = dayLabel(day);
+  $("return-today").hidden = state.selectedDay === null;
+  $("previous-day").disabled = busy || (!!state.oldestDay && day <= state.oldestDay);
+  $("next-day").disabled = busy || today;
+  $("return-today").disabled = busy;
+}
+
+function navigateDay(offset) {
+  const date = dayDate(shownDay());
+  date.setDate(date.getDate() + offset);
+  const next = ymd(date);
+  if (next > ymd(new Date())) return;
+  state.selectedDay = next === ymd(new Date()) ? null : next;
+  renderDayNavigation();
+  $("tip").hidden = true;
+  refresh(false);
+}
+
+function renderRibbon(events, day) {
+  const today = day === ymd(new Date());
+  $("day-date").textContent = dayLabel(day);
+  $("ribbon-help").textContent = today
+    ? "Each mark is one event since midnight. Hover or tap a mark to see it."
+    : "Each mark is one event on this day. Hover or tap a mark to see it.";
+  const nowPct = (minutesOfDay(new Date()) / 1440) * 100;
   for (const cat of ["granted", "refused", "alarm"]) {
     const lane = document.querySelector(`.lane[data-cat="${cat}"]`);
     const track = lane.querySelector(".track");
@@ -227,9 +268,11 @@ function renderRibbon(events) {
       t.style.left = `${(minutesOfDay(d) / 1440) * 100}%`;
       frag.append(t);
     }
-    const now = el("span", { class: "now" });
-    now.style.left = `${nowPct}%`;
-    frag.append(now);
+    if (today) {
+      const now = el("span", { class: "now" });
+      now.style.left = `${nowPct}%`;
+      frag.append(now);
+    }
     track.replaceChildren(frag);
   }
 }
@@ -274,8 +317,10 @@ function setupTooltip() {
 }
 
 // ---------------------------------------------------------------- doors
-function renderDoors(events) {
+function renderDoors(events, day) {
   const list = $("doors");
+  const currentDay = day === ymd(new Date());
+  const dateLabel = currentDay ? "today" : `on ${dayLabel(day)}`;
   if (!state.doors.length) {
     list.replaceChildren(el("li", { class: "empty", text: "No named doors on this controller." }));
     return;
@@ -294,20 +339,22 @@ function renderDoors(events) {
         el("span", { class: `mark ${last.category}`, "aria-hidden": "true" }),
         `${what} `, el("span", { class: "when", text: ago(parseIso(last.iso)) }));
     } else {
-      lastLine = el("p", { class: "door-last" }, el("span", { class: "when", text: "No one has used this door today." }));
+      lastLine = el("p", { class: "door-last" },
+        el("span", { class: "when", text: `No one has used this door ${dateLabel}.` }));
     }
     const opened = `${granted} ${granted === 1 ? "opening" : "openings"}`;
-    const today = refused ? `${opened}, ${refused} refused today` : `${opened} today`;
+    const summary = refused ? `${opened}, ${refused} refused ${dateLabel}` : `${opened} ${dateLabel}`;
     return el("li", { class: "door" },
       el("span", { class: "door-name" }, el("button", { type: "button", class: "door-link", "data-door": String(door.id), text: door.name })),
-      el("span", { class: "door-today", text: today }),
+      el("span", { class: "door-today", text: summary }),
       lastLine);
   });
   list.replaceChildren(...items);
 }
 
 // ---------------------------------------------------------------- alerts
-function renderAlerts(events) {
+function renderAlerts(events, day) {
+  const currentDay = day === ymd(new Date());
   const byCode = new Map();
   for (const e of events) {
     if (e.category !== "alarm" && e.code !== 87) continue;
@@ -316,7 +363,8 @@ function renderAlerts(events) {
   }
   const list = $("alerts");
   if (!byCode.size) {
-    list.replaceChildren(el("li", { class: "empty", text: "No alerts since midnight." }));
+    list.replaceChildren(el("li", { class: "empty", text: currentDay
+      ? "No alerts since midnight." : `No alerts on ${dayLabel(day)}.` }));
     return;
   }
   const groups = [...byCode.entries()].sort((a, b) => b[1].length - a[1].length);
@@ -328,7 +376,8 @@ function renderAlerts(events) {
     if (clearCode != null) {
       const cleared = events.find((e) => e.code === clearCode);
       const active = !cleared || cleared.no < latest.no;
-      status = active ? "Active now" : `Cleared at ${clock(parseIso(cleared.iso))}`;
+      status = active ? (currentDay ? "Active now" : "Active at end of day")
+        : `Cleared at ${clock(parseIso(cleared.iso))}`;
     }
     if (evs.length > 1) {
       status += `${clearCode != null ? "." : ""} First at ${clock(parseIso(evs[evs.length - 1].iso))}, latest at ${clock(latestDate)}`;
@@ -502,13 +551,18 @@ async function refresh(force) {
   if (refreshing) return;
   refreshing = true;
   $("refresh").disabled = true;
+  $("previous-day").disabled = true;
+  $("next-day").disabled = true;
+  $("return-today").disabled = true;
   try {
-    const today = await api(`/api/today${force ? "?refresh=1" : ""}`);
-    state.events = new Map(today.events.map((e) => [e.no, e]));   // only today's, for the ribbon
-    const events = todaysEvents();
-    renderRibbon(events);
-    renderDoors(events);
-    renderAlerts(events);
+    const params = new URLSearchParams({ date: shownDay() });
+    if (force) params.set("refresh", "1");
+    const day = await api(`/api/today?${params}`);
+    state.events = new Map(day.events.map((e) => [e.no, e]));
+    const events = sortedEvents();
+    renderRibbon(events, day.date);
+    renderDoors(events, day.date);
+    renderAlerts(events, day.date);
     await loadActivity("refresh");
     markOk();
   } catch (err) {
@@ -516,6 +570,7 @@ async function refresh(force) {
   } finally {
     refreshing = false;
     $("refresh").disabled = false;
+    renderDayNavigation();
   }
 }
 
@@ -1325,6 +1380,7 @@ function setupTabs() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   renderHours();
+  renderDayNavigation();
   setupTooltip();
   setupTabs();
   const reloadActivity = () => loadActivity("reset").catch((err) => showError(err.message));
@@ -1340,6 +1396,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("people-search").addEventListener("input", renderPeople);
   $("load-older").addEventListener("click", loadOlder);
   $("refresh").addEventListener("click", () => { refresh(true); refreshOverview(); });
+  $("previous-day").addEventListener("click", () => navigateDay(-1));
+  $("next-day").addEventListener("click", () => navigateDay(1));
+  $("return-today").addEventListener("click", () => {
+    state.selectedDay = null;
+    renderDayNavigation();
+    refresh(false);
+  });
   $("update-button").addEventListener("click", installUpdate);
   setupPersonDialog();
   setupDoorPanel();

@@ -6,7 +6,7 @@ A local web dashboard for **Vauban VISOR+ / VERSO+** door access controllers: li
 
 ## Features
 
-- **Today at the doors:** a 24-hour strip with one mark per event: doors opened, refused badges, alarms.
+- **Doors by day:** a 24-hour strip with one mark per event, plus daily door counts and alerts. Navigate previous archived days with the day controls.
 - **Doors:** activity per door (badge, exit button, remote), alarms, recent events, and an optional **Open door** button that waits for the controller to confirm.
 - **Alerts:** grouped alarms (power-supply faults, forced doors, reader problems…) in plain language, with whether they're still active.
 - **Activity:** the full event history, filtered and searchable, exportable to CSV. The controller only keeps its last 15,000 events; visor-dash archives them so history survives.

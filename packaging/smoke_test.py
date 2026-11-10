@@ -28,7 +28,10 @@ def check(path: str, version: str) -> None:
         Path(home, ".env").write_text("VAUBAN_HOST=127.0.0.1\nVAUBAN_PORT=9\nVAUBAN_USER=a\nVAUBAN_PASSWORD=b\n",
                                       encoding="utf-8")
         where = subprocess.run(cmd + ["--home", home, "where"], capture_output=True, text=True, timeout=120)
-        assert where.returncode == 0 and home in where.stdout, where.stdout + where.stderr
+        # Compare resolved paths: Windows may hand out the temp folder in short 8.3 form.
+        shown = where.stdout.splitlines()[0].split(":", 1)[1].strip() if where.stdout else ""
+        assert where.returncode == 0 and os.path.normcase(os.path.realpath(shown)) == \
+            os.path.normcase(os.path.realpath(home)), where.stdout + where.stderr
         proc = subprocess.Popen(cmd + ["--home", home, "serve", "--port", str(PORT)],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         try:

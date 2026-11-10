@@ -291,13 +291,19 @@ exec >>"$log" 2>&1
 start_service() {
     if ! systemctl --user start "$unit"; then return 1; fi
     attempt=0
+    healthy=0
     while [ "$attempt" -lt 100 ]; do
         state=$(systemctl --user show --property=ActiveState --value "$unit")
         substate=$(systemctl --user show --property=SubState --value "$unit")
-        if [ "$state" = active ]; then return 0; fi
-        case "$state:$substate" in
-            failed:*|inactive:*|activating:auto-restart) return 1 ;;
-        esac
+        if [ "$state" = active ]; then
+            healthy=$((healthy + 1))
+            if [ "$healthy" -ge 10 ]; then return 0; fi
+        else
+            healthy=0
+            case "$state:$substate" in
+                failed:*|inactive:*|activating:auto-restart) return 1 ;;
+            esac
+        fi
         sleep 0.2
         attempt=$((attempt + 1))
     done
@@ -329,6 +335,7 @@ if ! mv -f "$backup" "$target"; then
     printf '%s\\n' 'Update rollback failed; the previous executable remains in the backup file.'
     exit 1
 fi
+systemctl --user reset-failed "$unit" || true
 if ! start_service; then
     printf '%s\\n' 'Update rollback restored the previous executable, but the service did not start.'
     exit 1

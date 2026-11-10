@@ -45,9 +45,10 @@ class BackupTests(unittest.TestCase):
         st = run_backup(FakeBackupClient(), FakeFormManager(), self.dir, log=lambda m: None)
         self.assertTrue(st["ok"], st)
         self.assertEqual((st["people"], st["problems"]), (1, 0))
-        for name in (st["official_file"], st["forms_file"], "last-backup.json"):
-            mode = os.stat(self.dir / name).st_mode & 0o777
-            self.assertEqual(mode, 0o600, name)
+        if os.name != "nt":   # Windows has no Unix permission bits (per-user folders are private already)
+            for name in (st["official_file"], st["forms_file"], "last-backup.json"):
+                mode = os.stat(self.dir / name).st_mode & 0o777
+                self.assertEqual(mode, 0o600, name)
         snap = json.loads((self.dir / st["forms_file"]).read_text())
         self.assertEqual(snap["forms"][0]["form"]["lastname"], "DUPONT ")
         self.assertEqual(status_summary(self.dir)["state"], "ok")

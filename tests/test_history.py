@@ -34,6 +34,7 @@ class ArchiveTests(unittest.TestCase):
         self.a.db.close()
         self.tmp.cleanup()
 
+    @unittest.skipIf(os.name == "nt", "Windows has no Unix permission bits")
     def test_file_is_private(self):
         self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
         self.assertEqual(os.stat(self.path.parent).st_mode & 0o777, 0o700)

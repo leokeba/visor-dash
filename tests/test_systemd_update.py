@@ -148,10 +148,12 @@ class SystemdUpdateIntegrationTests(unittest.TestCase):
                 self.assertFalse(target.with_name(f".{target.name}.update-backup-{pid}").exists())
                 return
             self._wait_for(
-                lambda: marker.read_text(encoding="utf-8") == "new-version\n",
+                lambda: log.exists() and
+                "Update installed and dashboard restarted" in log.read_text(encoding="utf-8"),
                 "new executable was not installed and started",
                 diagnostics=lambda: self._diagnostics(log, helper_unit, dashboard_unit),
             )
+            self.assertEqual(marker.read_text(encoding="utf-8"), "new-version\n")
             self.assertEqual(target.read_text(encoding="utf-8"), "new-version\n")
             self.assertFalse(target.with_name(f".{target.name}.update-backup-{pid}").exists())
         else:

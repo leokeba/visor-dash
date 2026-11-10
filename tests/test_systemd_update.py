@@ -1,3 +1,5 @@
+import os
+import signal
 import shlex
 import shutil
 import subprocess
@@ -28,24 +30,49 @@ class SystemdUpdateIntegrationTests(unittest.TestCase):
 
     def setUp(self):
         self.units = []
+        self.helper_units = []
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+        self.unit_dir = config_home / "systemd" / "user"
+        self.unit_dir.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
-        for unit in self.units:
+        for unit in self.helper_units:
             subprocess.run(["systemctl", "--user", "stop", unit], capture_output=True, timeout=10)
+        for unit, unit_file in self.units:
+            subprocess.run(["systemctl", "--user", "stop", unit], capture_output=True, timeout=10)
+            unit_file.unlink(missing_ok=True)
+        if self.units:
+            subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, timeout=10)
         self.temp.cleanup()
 
     def _start_unit(self, command):
+        self.assertEqual(len(command), 1)
         unit = f"visor-dash-test-{uuid.uuid4().hex}.service"
+        unit_file = self.unit_dir / unit
+        unit_file.write_text(
+            "[Unit]\n"
+            "Description=visor-dash updater integration test\n"
+            "[Service]\n"
+            "Type=exec\n"
+            f"ExecStart={command[0]}\n"
+            "Restart=always\n"
+            "RestartSec=1s\n"
+            "KillMode=control-group\n",
+            encoding="utf-8",
+        )
+        self.units.append((unit, unit_file))
         result = subprocess.run(
-            ["systemd-run", "--user", f"--unit={unit}", "--property=Type=exec",
-             "--property=KillMode=control-group", "--property=Restart=always",
-             "--property=RestartSec=1s", "--quiet", *command],
+            ["systemctl", "--user", "daemon-reload"],
             capture_output=True, text=True, timeout=15, check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.units.append(unit)
+        result = subprocess.run(
+            ["systemctl", "--user", "start", unit],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
         return unit
 
     def _main_pid(self, unit):
@@ -105,12 +132,8 @@ class SystemdUpdateIntegrationTests(unittest.TestCase):
         pid = self._main_pid(dashboard_unit)
         log = self.root / "update.log"
         helper_unit = updater._schedule_systemd_restart(stage, target, dashboard_unit, pid, log)
-        self.units.append(helper_unit)
-        stopped = subprocess.run(
-            ["systemctl", "--user", "stop", dashboard_unit],
-            capture_output=True, text=True, timeout=15, check=False,
-        )
-        self.assertEqual(stopped.returncode, 0, stopped.stderr)
+        self.helper_units.append(helper_unit)
+        os.kill(pid, signal.SIGTERM)
 
         if stage_exists:
             if fail_new_start:

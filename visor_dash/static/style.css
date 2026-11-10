@@ -52,6 +52,9 @@ button, input { font: inherit; color: inherit; }
 /* ---- header ---------------------------------------------------------- */
 .top, main, .foot { max-width: 1180px; margin-inline: auto; padding-inline: 24px; }
 .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding-top: 28px; padding-bottom: 18px; }
+.top-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.top-buttons { display: flex; align-items: center; gap: 8px; }
+.update-status { color: var(--muted); font-size: 0.8125rem; text-align: right; }
 .conn { color: var(--muted); font-size: 0.875rem; margin-top: 4px; }
 .conn::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--info); margin-right: 8px; vertical-align: 1px; }
 .conn.ok::before { background: var(--granted); }
@@ -63,7 +66,6 @@ button, input { font: inherit; color: inherit; }
 }
 .btn:hover { border-color: var(--muted); }
 .btn:disabled { opacity: 0.55; cursor: progress; }
-
 .notice, .error { font-size: 0.875rem; }
 .notice { color: var(--muted); margin-bottom: 14px; }
 .error { margin-bottom: 14px; padding: 10px 0 10px 12px; color: var(--refused); border-left: 3px solid var(--refused); }
@@ -277,6 +279,9 @@ td.access-none { color: var(--muted); }
 @media (max-width: 760px) {
   .top, main, .foot { padding-inline: 16px; }
   .top { align-items: flex-start; flex-direction: column; }
+  .top-actions { width: 100%; align-items: flex-start; }
+  .top-buttons { flex-wrap: wrap; }
+  .update-status { text-align: left; }
   .day { padding: 18px 16px 14px; }
   .ribbon { grid-template-columns: 1fr auto; }
   .lane-name { grid-column: 1; }

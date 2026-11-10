@@ -14,7 +14,15 @@
       <h1 id="site-name">Badge controller</h1>
       <p class="conn" id="conn" role="status" aria-live="polite">Connecting to the controller…</p>
     </div>
-    <button type="button" class="btn" id="refresh">Refresh now</button>
+    <div class="top-actions">
+      <div class="top-buttons">
+        <a class="btn primary" id="update-link" href="https://github.com/leokeba/visor-dash/releases/latest"
+           target="_blank" rel="noopener noreferrer" hidden>Get update</a>
+        <button type="button" class="btn primary" id="update-button" hidden>Install update</button>
+        <button type="button" class="btn" id="refresh">Refresh now</button>
+      </div>
+      <p class="update-status" id="update-status" role="status" aria-live="polite" hidden></p>
+    </div>
   </header>
 
   <main>

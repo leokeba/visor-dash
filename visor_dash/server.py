@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 from .client import (DELETED_USER_ID, GRANTED, IDENTIFIER_TYPES, ControllerError, RawEvent,
                      VaubanClient, event_category)
 from . import settings
+from . import updater
 from .backup import status_summary
 from .history import CATEGORY_CODES, EventArchive, Row, key_of
 from .schedules import (ANY_TIME, DAY_KEYS, NO_ACCESS, ScheduleManager)
@@ -46,6 +47,7 @@ TTL_USERS = 60
 TTL_LABELS = 300
 TTL_TRANSLATIONS = 3600
 TTL_VERSIONS = 300
+TTL_UPDATES = 60 * 60
 MIN_POLL_INTERVAL = 10       # never fetch the newest events page more often than this
 MIN_FORCED_POLL_INTERVAL = 2 # ...except while someone waits for a badge swipe or presses Refresh
 UNKNOWN_BADGE_CODE = 0       # event "Identifiant inconnu": a badge the controller doesn't know
@@ -103,6 +105,7 @@ class Dashboard:
         self.lifts = Cached(TTL_LABELS, lambda: client.labels("Lifts", self.t("strLift")))
         self.trans = Cached(TTL_TRANSLATIONS, lambda: client.translations(lang))
         self.versions = Cached(TTL_VERSIONS, client.versions)
+        self.release_update = Cached(TTL_UPDATES, updater.update_status)
         self.schedules = ScheduleManager(client, self.trans.get, self.groups.get, self.slots.get,
                                          self.lifts.get, self._refresh_schedule_labels)
         self.access_cache = Cached(TTL_USERS, self._load_access)
@@ -697,6 +700,12 @@ def make_handler(dash: Dashboard, dash_password: Optional[str], allowed_hosts: O
             try:
                 if url.path == "/api/overview":
                     data = dash.overview()
+                elif url.path == "/api/update":
+                    try:
+                        data = dash.release_update.get()
+                    except updater.UpdateError as e:
+                        self._json({"error": str(e)}, 502)
+                        return
                 elif url.path == "/api/today":
                     dash.poll_events(force=q.get("refresh") == "1")
                     data = dash.today()
@@ -793,6 +802,17 @@ def make_handler(dash: Dashboard, dash_password: Optional[str], allowed_hosts: O
 
         def do_POST(self):
             url = urlparse(self.path)
+            if url.path == "/api/update":
+                if self._write_guard() is None:
+                    return
+                try:
+                    result = updater.install_latest()
+                except updater.UpdateError as e:
+                    self._json({"error": str(e)}, 502)
+                    return
+                self._json(result)
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                return
             if url.path.startswith("/api/doors/") and url.path.endswith("/open"):
                 self._open_door(url.path)
                 return

@@ -34,6 +34,8 @@ The apps aren't code-signed, so your system will warn you the first time:
 
 Each release lists SHA-256 checksums in `SHA256SUMS.txt`.
 
+The dashboard checks GitHub for a newer release and shows an update button when one is available. Packaged apps and `.pyz` installs can download, verify and install the matching update, then restart; source installs link to the release downloads. Checking for updates requires an internet connection.
+
 Then:
 
 ```sh

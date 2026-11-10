@@ -122,6 +122,53 @@ function renderOverview(o) {
   }
 }
 
+async function checkForUpdate() {
+  const button = $("update-button");
+  const link = $("update-link");
+  const status = $("update-status");
+  try {
+    const update = await api("/api/update");
+    if (!update.available) {
+      button.hidden = true;
+      link.hidden = true;
+      status.hidden = true;
+      return;
+    }
+    if (update.installable) {
+      button.textContent = `Install v${update.latest}`;
+      button.hidden = false;
+      link.hidden = true;
+      status.textContent = `Version ${update.latest} is available. The dashboard will restart after updating.`;
+    } else {
+      link.href = update.release_url;
+      link.textContent = `Get v${update.latest}`;
+      link.hidden = false;
+      button.hidden = true;
+      status.textContent = `Version ${update.latest} is available to download.`;
+    }
+    status.hidden = false;
+  } catch (err) {
+    status.textContent = `Couldn't check for updates: ${err.message}`;
+    status.hidden = false;
+  }
+}
+
+async function installUpdate() {
+  const button = $("update-button");
+  const status = $("update-status");
+  if (!window.confirm("Install this update and restart the dashboard now?")) return;
+  button.disabled = true;
+  status.textContent = "Downloading and verifying the update…";
+  status.hidden = false;
+  try {
+    const result = await apiWrite("POST", "/api/update", {});
+    status.textContent = `Installed v${result.version}. Restarting the dashboard…`;
+  } catch (err) {
+    status.textContent = `Update failed: ${err.message}`;
+    button.disabled = false;
+  }
+}
+
 function whenText(iso) {
   const d = parseIso(iso);
   if (!d) return "unknown";
@@ -1293,17 +1340,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("people-search").addEventListener("input", renderPeople);
   $("load-older").addEventListener("click", loadOlder);
   $("refresh").addEventListener("click", () => { refresh(true); refreshOverview(); });
+  $("update-button").addEventListener("click", installUpdate);
   setupPersonDialog();
   setupDoorPanel();
   setupAccess();
   loadOptions().catch(() => {});
 
   await refreshOverview();
+  checkForUpdate();
   await loadActivity("reset").catch((err) => showError(err.message));
   await refresh(false);
   loadPeople(false).catch(() => {});  // fills the tab count in the background
 
   setInterval(() => { if (!document.hidden) refresh(false); }, REFRESH_MS);
   setInterval(() => { if (!document.hidden) refreshOverview(); }, OVERVIEW_MS);
+  setInterval(() => { if (!document.hidden) checkForUpdate(); }, OVERVIEW_MS);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(false); });
 });

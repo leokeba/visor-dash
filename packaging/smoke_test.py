@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,7 +24,8 @@ def check(path: str, version: str) -> None:
     cmd = command(path)
     out = subprocess.run(cmd + ["--version"], capture_output=True, text=True, timeout=120)
     assert out.returncode == 0 and version in out.stdout, f"--version said: {out.stdout!r} {out.stderr!r}"
-    with tempfile.TemporaryDirectory() as home:
+    home = tempfile.mkdtemp()
+    try:
         # Controller on a closed local port: every request fails fast; the page must still load.
         Path(home, ".env").write_text("VAUBAN_HOST=127.0.0.1\nVAUBAN_PORT=9\nVAUBAN_USER=a\nVAUBAN_PASSWORD=b\n",
                                       encoding="utf-8")
@@ -49,12 +51,36 @@ def check(path: str, version: str) -> None:
                         raise SystemExit(f"{path}: dashboard did not start.\n{proc.stdout.read()}")
                     time.sleep(1)
         finally:
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+            stop(proc)
+    finally:
+        remove(home)
     print(f"ok  {path}  ({version})")
+
+
+def stop(proc: subprocess.Popen) -> None:
+    """Stop the app and anything it started (a one-file app runs as launcher + child)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        proc.terminate()
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=15)
+
+
+def remove(folder: str) -> None:
+    """Delete the temporary home; files can stay locked briefly on Windows after the process exits."""
+    for _ in range(20):
+        try:
+            shutil.rmtree(folder)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            time.sleep(0.5)
+    shutil.rmtree(folder, ignore_errors=True)
 
 
 def main() -> int:

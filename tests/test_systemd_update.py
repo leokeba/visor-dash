@@ -55,13 +55,31 @@ class SystemdUpdateIntegrationTests(unittest.TestCase):
         )
         return int(result.stdout.strip())
 
-    def _wait_for(self, predicate, message):
+    def _wait_for(self, predicate, message, diagnostics=None):
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             if predicate():
                 return
             time.sleep(0.1)
+        if diagnostics:
+            message = f"{message}\n{diagnostics()}"
         self.fail(message)
+
+    def _diagnostics(self, log, helper_unit, dashboard_unit):
+        contents = log.read_text(encoding="utf-8") if log.exists() else "<no updater log>"
+        details = [f"Updater log:\n{contents}"]
+        for unit in (helper_unit, dashboard_unit):
+            status = subprocess.run(
+                ["systemctl", "--user", "status", unit, "--no-pager"],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            journal = subprocess.run(
+                ["journalctl", "--user", "-u", unit, "--no-pager", "-n", "20"],
+                capture_output=True, text=True, timeout=5, check=False,
+            )
+            details.extend((f"{unit} status:\n{status.stdout}{status.stderr}",
+                            f"{unit} journal:\n{journal.stdout}{journal.stderr}"))
+        return "\n".join(details)
 
     def _exercise_update(self, stage_exists, fail_new_start=False):
         target = self.root / "visor-dash"
@@ -100,6 +118,7 @@ class SystemdUpdateIntegrationTests(unittest.TestCase):
                     lambda: log.exists() and
                     "Previous executable restored and dashboard restarted" in log.read_text(encoding="utf-8"),
                     "failed new version was not rolled back",
+                    diagnostics=lambda: self._diagnostics(log, helper_unit, dashboard_unit),
                 )
                 self.assertEqual(marker.read_text(encoding="utf-8"), "old-version\n")
                 self.assertEqual(target.read_text(encoding="utf-8"), "old-version\n")
@@ -108,6 +127,7 @@ class SystemdUpdateIntegrationTests(unittest.TestCase):
             self._wait_for(
                 lambda: marker.read_text(encoding="utf-8") == "new-version\n",
                 "new executable was not installed and started",
+                diagnostics=lambda: self._diagnostics(log, helper_unit, dashboard_unit),
             )
             self.assertEqual(target.read_text(encoding="utf-8"), "new-version\n")
             self.assertFalse(target.with_name(f".{target.name}.update-backup-{pid}").exists())
@@ -115,6 +135,7 @@ class SystemdUpdateIntegrationTests(unittest.TestCase):
             self._wait_for(
                 lambda: log.exists() and "could not atomically replace" in log.read_text(encoding="utf-8"),
                 "replacement failure was not logged",
+                diagnostics=lambda: self._diagnostics(log, helper_unit, dashboard_unit),
             )
             self.assertEqual(target.read_text(encoding="utf-8"), "old-version\n")
             self.assertFalse(target.with_name(f".{target.name}.update-backup-{pid}").exists())
